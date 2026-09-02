@@ -191,7 +191,7 @@ class DownloadStatus:
     message: str | None
     total_rows: int | None
     total_columns: int | None
-    total_size: int | None
+    total_size: float | None
     seconds_elapsed: float | None
     checked_at: datetime
 
@@ -478,7 +478,7 @@ class USAspendingClient:
         )
 
         status = _required_text(response, "status").casefold()
-        if status not in {"running", "finished", "failed"}:
+        if status not in {"ready", "running", "finished", "failed"}:
             raise USAspendingProtocolError(
                 f"unknown USAspending download status: {status!r}"
             )
@@ -494,7 +494,7 @@ class USAspendingClient:
             message=_optional_text(response, "message"),
             total_rows=_optional_int(response, "total_rows"),
             total_columns=_optional_int(response, "total_columns"),
-            total_size=_optional_int(response, "total_size"),
+            total_size=_optional_float(response, "total_size"),
             seconds_elapsed=_optional_float(response, "seconds_elapsed"),
             checked_at=self._aware_now(),
         )
@@ -677,8 +677,7 @@ class USAspendingClient:
             )
         return delay
 
-    @staticmethod
-    def _retry_after_seconds(headers: Mapping[str, str]) -> float | None:
+    def _retry_after_seconds(self, headers: Mapping[str, str]) -> float | None:
         value = headers.get("retry-after")
         if value is None:
             return None
@@ -694,7 +693,7 @@ class USAspendingClient:
                 parsed = parsed.replace(tzinfo=timezone.utc)
             return max(
                 0.0,
-                (parsed.astimezone(timezone.utc) - datetime.now(timezone.utc)).total_seconds(),
+                (parsed.astimezone(timezone.utc) - self._aware_now()).total_seconds(),
             )
 
     @staticmethod
