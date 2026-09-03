@@ -269,26 +269,43 @@ class PeerGroupIndex:
         self._total = 0
 
     def observe(self, transaction: ProcurementTransaction) -> None:
+        """Atomically add one transaction after all configured limits pass."""
+
         candidates = peer_group_candidates(transaction, self.plan)
+        txid = transaction.transaction_id
+        context_digest = _candidate_digest(candidates)
+
+        # Preflight every operation that can fail before mutating counts/context.
+        add_context = False
         if self._contexts is not None:
-            txid = transaction.transaction_id
             if txid in self._contexts:
                 if self.policy.reject_duplicate_transaction_ids:
-                    raise PeerGroupError(f"duplicate transaction_id in peer population: {txid!r}")
+                    raise PeerGroupError(
+                        f"duplicate transaction_id in peer population: {txid!r}"
+                    )
             else:
                 limit = self.policy.max_transaction_ids
                 if limit is not None and len(self._contexts) >= limit:
-                    raise PeerGroupError(f"transaction index exceeds max_transaction_ids={limit}")
-                self._contexts[txid] = _candidate_digest(candidates)
+                    raise PeerGroupError(
+                        f"transaction index exceeds max_transaction_ids={limit}"
+                    )
+                add_context = True
 
-        for candidate in candidates:
-            if candidate.key is None:
-                continue
-            if candidate.key not in self._counts:
-                limit = self.policy.max_distinct_groups
-                if limit is not None and len(self._counts) >= limit:
-                    raise PeerGroupError(f"group index exceeds max_distinct_groups={limit}")
-            self._counts[candidate.key] += 1
+        keys = tuple(
+            candidate.key for candidate in candidates if candidate.key is not None
+        )
+        new_keys = {key for key in keys if key not in self._counts}
+        group_limit = self.policy.max_distinct_groups
+        if group_limit is not None and len(self._counts) + len(new_keys) > group_limit:
+            raise PeerGroupError(
+                f"group index exceeds max_distinct_groups={group_limit}"
+            )
+
+        # Commit only after the full preflight has succeeded.
+        if add_context and self._contexts is not None:
+            self._contexts[txid] = context_digest
+        for key in keys:
+            self._counts[key] += 1
         self._total += 1
 
     def observe_many(self, transactions: Iterable[ProcurementTransaction]) -> "PeerGroupIndex":
