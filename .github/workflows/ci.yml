@@ -4,8 +4,8 @@ on:
   push:
     branches:
       - main
-      - build/complete-procurelens
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
