@@ -5,6 +5,9 @@ import json
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from io import StringIO
+from pathlib import Path
+
+import pytest
 
 from procurelens.detectors.calibration import ScoreCalibrationSpec
 from procurelens.detectors.ensemble import EnsembleMethod
@@ -53,10 +56,13 @@ from procurelens.review.policy import (
     ReviewSelectionMethod,
     ReviewTiePolicy,
 )
+from procurelens.runtime.publication import PublicationError, publish_analysis_run
 from procurelens.statistics.robust import QuantileMethod
 
 
-def test_real_full_pipeline_reaches_review_exports_and_manifest() -> None:
+def test_real_full_pipeline_reaches_review_exports_manifest_and_atomic_publication(
+    tmp_path: Path,
+) -> None:
     catalog = feature_catalog()
     feature_plan = _feature_plan(catalog.sha256_hex)
     population = _population()
@@ -194,6 +200,36 @@ def test_real_full_pipeline_reaches_review_exports_and_manifest() -> None:
     assert manifest_index["model_review_run"].sha256_hex == result.model_review.evidence_sha256
     assert manifest_index["export_00_json"].sha256_hex == exports[0].payload_sha256
     assert manifest_index["export_01_csv"].sha256_hex == exports[1].payload_sha256
+
+    receipt = publish_analysis_run(
+        result,
+        tmp_path,
+        bundle_name="synthetic-full-bundle",
+    )
+    assert receipt.bundle_path == tmp_path / "synthetic-full-bundle"
+    assert receipt.run_evidence_sha256 == result.evidence_sha256
+    assert (receipt.bundle_path / "manifest.json").is_file()
+    assert (receipt.bundle_path / "publication.json").is_file()
+    assert (receipt.bundle_path / "exports" / "export_00.json").read_bytes() == exports[0].payload_bytes
+    assert (receipt.bundle_path / "exports" / "export_01.csv").read_bytes() == exports[1].payload_bytes
+
+    publication_payload = json.loads(
+        (receipt.bundle_path / "publication.json").read_text(encoding="utf-8")
+    )
+    assert publication_payload["run_evidence_sha256"] == result.evidence_sha256
+    assert publication_payload["manifest_evidence_sha256"] == result.manifest.evidence_sha256
+
+    manifest_before = (receipt.bundle_path / "manifest.json").read_bytes()
+    with pytest.raises(PublicationError, match="already exists"):
+        publish_analysis_run(
+            result,
+            tmp_path,
+            bundle_name="synthetic-full-bundle",
+        )
+    assert (receipt.bundle_path / "manifest.json").read_bytes() == manifest_before
+
+    with pytest.raises(PublicationError, match="safe filesystem component"):
+        publish_analysis_run(result, tmp_path, bundle_name="../unsafe")
 
 
 def _complete_varying_features(rows: tuple[object, ...], *, limit: int) -> tuple[str, ...]:
