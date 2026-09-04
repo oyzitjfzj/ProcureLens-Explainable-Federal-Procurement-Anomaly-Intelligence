@@ -197,7 +197,7 @@ You need:
 - a normal CPython environment in which NumPy and scikit-learn can be installed;
 - enough memory for the reference population and detector configuration you choose.
 
-The CI workflow currently exercises Python 3.11, 3.13, and 3.14 on Ubuntu. Other platforms may work, but a platform on which the compiled NumPy/scikit-learn stack cannot be installed is not a supported substitute for a successful test run.
+The CI workflow currently exercises Python 3.11, 3.12, 3.13, and 3.14 on Ubuntu. Other platforms may work, but a platform on which the compiled NumPy/scikit-learn stack cannot be installed is not a supported substitute for a successful test run.
 
 ### 2. Clone ProcureLens onto your computer
 
