@@ -102,6 +102,59 @@ def test_live_publication_preserves_source_preparation_and_analysis_provenance(
         )
 
 
+def test_live_publication_never_removes_another_publishers_lock(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeAnalysis:
+        def __init__(self) -> None:
+            self.evidence_sha256 = "a" * 64
+            self.manifest = _Manifest()
+            payload = b'{"records":[]}\n'
+            export = SimpleNamespace(
+                payload_bytes=payload,
+                payload_sha256=sha256(payload).hexdigest(),
+                format=SimpleNamespace(value="json"),
+                media_type="application/json",
+            )
+            self.model_review = SimpleNamespace(serialized_exports=(export,))
+
+    class _FakeLive:
+        def __init__(self, analysis) -> None:
+            self.analysis = analysis
+            self.prepared = _Prepared()
+            self.evidence_sha256 = "d" * 64
+
+        def as_dict(self):
+            return {
+                "prepared_dataset_sha256": "e" * 64,
+                "analysis_sha256": self.analysis.evidence_sha256,
+                "evidence_sha256": self.evidence_sha256,
+            }
+
+    monkeypatch.setattr(run_module, "ProcureLensAnalysisRun", _FakeAnalysis)
+    monkeypatch.setattr(live_module, "LiveUSAspendingAnalysisRun", _FakeLive)
+
+    root = tmp_path / "runs"
+    root.mkdir()
+    lock = root / ".live-source-review.publish.lock"
+    sentinel = b"other-publisher-owns-this-lock\n"
+    lock.write_bytes(sentinel)
+
+    with pytest.raises(
+        PublicationError,
+        match="publication lock already exists for this bundle name",
+    ):
+        publish_live_usaspending_run(
+            _FakeLive(_FakeAnalysis()),
+            root,
+            bundle_name="live-source-review",
+        )
+
+    assert lock.read_bytes() == sentinel
+    assert not (root / "live-source-review").exists()
+
+
 @dataclass(frozen=True)
 class _Manifest:
     evidence_sha256: str = "b" * 64
