@@ -369,10 +369,10 @@ def _publish_bundle(
             shutil.rmtree(stage, ignore_errors=True)
         if lock_fd is not None:
             os.close(lock_fd)
-        try:
-            lock_path.unlink()
-        except FileNotFoundError:
-            pass
+            try:
+                lock_path.unlink()
+            except FileNotFoundError:
+                pass
         try:
             _fsync_directory(root)
         except OSError:
