@@ -47,25 +47,35 @@ class StabilityRun:
         if not name:
             raise StabilityError("run_name must not be blank")
         object.__setattr__(self, "run_name", name)
-        object.__setattr__(self, "source_kind", StabilitySourceKind(self.source_kind))
+        object.__setattr__(
+            self, "source_kind", StabilitySourceKind(self.source_kind)
+        )
         object.__setattr__(
             self,
             "source_evidence_sha256",
-            _digest_hex(self.source_evidence_sha256, "source_evidence_sha256"),
+            _digest_hex(
+                self.source_evidence_sha256, "source_evidence_sha256"
+            ),
         )
+
         identities = _identities(self.row_identities)
         positions = tuple(self.anomaly_positions)
-        if len(positions) != len(identities):
-            raise StabilityError("run position count differs from row population")
-        if any(
-            not isinstance(value, Decimal) or not value.is_finite()
-            for value in positions
-        ):
-            raise StabilityError("run positions must be finite Decimal values")
+        if len(identities) != len(positions):
+            raise StabilityError(
+                "row identity and anomaly-position counts differ"
+            )
+        if len(positions) < 2:
+            raise StabilityError(
+                "stability run requires at least two scored rows"
+            )
         for value in positions:
             _fraction(value, "anomaly position")
         object.__setattr__(self, "row_identities", identities)
         object.__setattr__(self, "anomaly_positions", positions)
+
+    @property
+    def row_count(self) -> int:
+        return len(self.row_identities)
 
     @property
     def sha256_hex(self) -> str:
@@ -74,8 +84,12 @@ class StabilityRun:
                 "run_name": self.run_name,
                 "source_kind": self.source_kind.value,
                 "source_evidence_sha256": self.source_evidence_sha256,
-                "row_identities": self.row_identities,
-                "anomaly_positions": [str(value) for value in self.anomaly_positions],
+                "rows": [
+                    (identity, str(position))
+                    for identity, position in zip(
+                        self.row_identities, self.anomaly_positions
+                    )
+                ],
             }
         )
 
@@ -88,11 +102,13 @@ class PairwiseRankAgreement:
     unavailable_reason: str | None
 
     def __post_init__(self) -> None:
-        left, right = self.left_run_name.strip(), self.right_run_name.strip()
-        if not left or not right or left == right:
-            raise StabilityError("rank agreement requires two distinct run names")
-        object.__setattr__(self, "left_run_name", left)
-        object.__setattr__(self, "right_run_name", right)
+        for field_name in ("left_run_name", "right_run_name"):
+            text = getattr(self, field_name).strip()
+            if not text:
+                raise StabilityError(f"{field_name} must not be blank")
+            object.__setattr__(self, field_name, text)
+        if self.left_run_name == self.right_run_name:
+            raise StabilityError("pairwise agreement requires distinct runs")
         if self.spearman_rho is None:
             reason = (
                 None
@@ -105,11 +121,12 @@ class PairwiseRankAgreement:
                 )
             object.__setattr__(self, "unavailable_reason", reason)
         else:
+            value = self.spearman_rho
             if (
-                not isinstance(self.spearman_rho, Decimal)
-                or not self.spearman_rho.is_finite()
-                or self.spearman_rho < Decimal(-1)
-                or self.spearman_rho > Decimal(1)
+                not isinstance(value, Decimal)
+                or not value.is_finite()
+                or value < Decimal(-1)
+                or value > Decimal(1)
             ):
                 raise StabilityError(
                     "spearman_rho must be finite Decimal in [-1, 1]"
