@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=77.0.3"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "procurelens"
+version = "0.1.0"
+description = "Explainable federal procurement anomaly intelligence with auditable contextual evidence."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "numpy>=1.24.1",
+  "scikit-learn>=1.9,<2",
+]
+keywords = [
+  "federal-procurement",
+  "anomaly-detection",
+  "explainable-ai",
+  "usaspending",
+]
+classifiers = [
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
+  "Programming Language :: Python :: 3",
+  "Topic :: Scientific/Engineering :: Information Analysis",
+]
+
+[project.optional-dependencies]
+test = [
+  "pytest>=8",
+]
+
+[project.urls]
+Repository = "https://github.com/oyzitjfzj/ProcureLens-Explainable-Federal-Procurement-Anomaly-Intelligence"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["procurelens*"]
+namespaces = true
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-config --strict-markers"
+testpaths = ["tests"]
