@@ -184,6 +184,274 @@ Two hashes serve different purposes:
 
 If the same recipe unexpectedly generates different artifacts, the difference remains visible.
 
+## Start here — first-time setup and a complete local check
+
+This section is the practical path for somebody who has just found the repository and wants to get it onto a computer, verify the installation, understand the supported entry point, and reach a known-good full-pipeline run before touching real federal data.
+
+### 1. Prerequisites
+
+You need:
+
+- Git;
+- Python 3.11 or newer;
+- a normal CPython environment in which NumPy and scikit-learn can be installed;
+- enough memory for the reference population and detector configuration you choose.
+
+The CI workflow currently exercises Python 3.11, 3.13, and 3.14 on Ubuntu. Other platforms may work, but a platform on which the compiled NumPy/scikit-learn stack cannot be installed is not a supported substitute for a successful test run.
+
+### 2. Clone ProcureLens onto your computer
+
+```bash
+git clone https://github.com/oyzitjfzj/ProcureLens-Explainable-Federal-Procurement-Anomaly-Intelligence.git
+cd ProcureLens-Explainable-Federal-Procurement-Anomaly-Intelligence
+```
+
+If you already cloned the project earlier and only want the latest verified `main` branch:
+
+```bash
+git switch main
+git pull --ff-only origin main
+```
+
+`--ff-only` is intentional: it refuses to silently create a merge commit when your local history has diverged.
+
+Before installing anything, confirm your Python version:
+
+```bash
+python --version
+```
+
+On systems where the command is named `python3` instead:
+
+```bash
+python3 --version
+```
+
+On Windows, the Python launcher can also be checked with:
+
+```powershell
+py --version
+```
+
+The reported version must be at least Python 3.11.
+
+### 3. Create an isolated virtual environment
+
+Linux, macOS, and most shell environments:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+If your system already maps `python` to the correct Python 3.11+ interpreter, this is equivalent:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+```
+
+Windows PowerShell:
+
+```powershell
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
+```
+
+Windows Command Prompt:
+
+```bat
+py -m venv .venv
+.venv\Scripts\activate.bat
+```
+
+After activation, `python --version` should still report Python 3.11 or newer.
+
+### 4. Install the package and test dependencies
+
+From the repository root:
+
+```bash
+python -m pip install --upgrade pip
+python -m pip install -e ".[test]"
+```
+
+The editable install means source-code changes in this checkout are picked up without repeatedly copying the package into `site-packages`.
+
+Verify that the important runtime imports work:
+
+```bash
+python -c "import numpy, sklearn, procurelens.pipeline.run; print('ProcureLens import: OK'); print('NumPy:', numpy.__version__); print('scikit-learn:', sklearn.__version__)"
+```
+
+If that command fails, fix the Python/dependency environment before attempting a real analysis.
+
+### 5. Run the tests before real data
+
+Fast contract check:
+
+```bash
+python -m pytest tests/test_pipeline_run_contract.py -q
+```
+
+Cross-module feature/reference integration:
+
+```bash
+python -m pytest tests/test_feature_pipeline_integration.py -q
+```
+
+Full synthetic ProcureLens pipeline, including real preprocessing, both detector families, calibration, ensemble, stability, review scoring/selection, explanation, exports, provenance, and publication:
+
+```bash
+python -m pytest tests/test_full_pipeline_integration.py -q
+```
+
+Then run the complete committed suite:
+
+```bash
+python -m pytest
+```
+
+These tests do not require live USAspending network access. They are the safest first proof that the code, package, dependencies, and cross-module contracts work together in your environment.
+
+### 6. Understand the current entry point
+
+The supported high-level interface is currently the **Python API**. The repository does not advertise a fake or incomplete `procurelens run ...` CLI command.
+
+The normal flow is:
+
+```text
+validated source data
+      ↓
+ProcurementTransaction objects
+      ↓
+explicit FeatureBuildPlan
+      ↓
+explicit ModelReviewPlan
+      ↓
+run_procurelens_analysis(...)
+      ↓
+review evidence + score + explanations + serialized exports
+      ↓
+publish_analysis_run(...)
+      ↓
+atomic run directory
+```
+
+A fully executable configuration is intentionally kept in `tests/test_full_pipeline_integration.py`. That test is the best starting template because it is continuously checked against the real code instead of being a stale pseudo-example in documentation.
+
+### 7. Historical analysis versus future scoring
+
+For a first historical analysis, the same frozen transaction population can be used as the reference/training and scoring population. The contextual modules use their designed leave-one-out behavior so an indexed target is not simply treated as its own peer.
+
+For a forward-looking or production-style run, keep the roles separate:
+
+```text
+historical/reference transactions  ──► build and freeze references/models
+new scoring transactions           ──► score against the frozen state
+```
+
+Do **not** append new scoring rows to the reference population immediately before scoring them. Doing that changes the baseline using the data that is being evaluated and weakens the train/reference separation ProcureLens is designed to preserve.
+
+### 8. Run and publish through the Python API
+
+At the highest level:
+
+```python
+from procurelens.pipeline.run import run_procurelens_analysis
+from procurelens.runtime.publication import publish_analysis_run
+
+run = run_procurelens_analysis(
+    reference_transactions=reference_transactions,
+    scoring_transactions=scoring_transactions,
+    feature_plan=feature_plan,
+    model_plan=model_plan,
+    run_name="federal-contract-review",
+    source_revision="your-source-snapshot-id",
+)
+
+receipt = publish_analysis_run(
+    run,
+    "runs",
+    bundle_name="federal-contract-review",
+)
+
+print("run evidence:", run.evidence_sha256)
+print("published:", receipt)
+```
+
+`reference_transactions` and `scoring_transactions` are canonical `ProcurementTransaction` objects. `feature_plan` and `model_plan` are explicit configuration artifacts; they are not silently invented by the runner.
+
+### 9. What to inspect after a published run
+
+A successful publication creates a new bundle rather than silently replacing an existing one. Inspect:
+
+- `manifest.json` — the provenance graph and exact run recipe/evidence chain;
+- `publication.json` — publication receipt/integrity information;
+- `exports/export_00.json` — deterministic machine-readable records when JSON export is configured;
+- `exports/export_01.csv` — review-friendly tabular output when CSV export is configured.
+
+Important output concepts include the review-priority score, flag/selection decision, rank interval, detector disagreement, feature completeness, stability evidence when available, explanation facts, source lineage, and evidence fingerprints.
+
+### 10. Updating an existing checkout safely
+
+From the repository root:
+
+```bash
+git status
+git switch main
+git pull --ff-only origin main
+python -m pip install -e ".[test]"
+python -m pytest
+```
+
+If `git status` shows local changes, understand or save those changes before pulling. Do not use destructive reset commands merely to make Git stop complaining.
+
+### 11. Common setup problems
+
+**`python` or `python3` is not found** — install a supported CPython version and reopen the shell.
+
+**Python is older than 3.11** — create the virtual environment with a newer interpreter; do not try to work around the package requirement by editing `pyproject.toml`.
+
+**`ModuleNotFoundError: procurelens`** — make sure you are in the repository root, the virtual environment is active, and `python -m pip install -e ".[test]"` completed successfully.
+
+**NumPy or scikit-learn installation fails** — use a platform/interpreter combination for which those packages provide a working build. An Android/Termux checkout can still be useful for reading/editing Git files, but full model execution depends on a working compiled scientific-Python stack in that environment.
+
+**A full integration test fails** — do not continue to real data and assume the failure is harmless. Capture the Python version, package versions, Git commit, and failing traceback first.
+
+Useful diagnostics:
+
+```bash
+python --version
+python -c "import numpy, sklearn; print('NumPy', numpy.__version__); print('scikit-learn', sklearn.__version__)"
+git rev-parse HEAD
+python -m pytest -q
+```
+
+**A published bundle name already exists** — choose a different bundle name or intentionally archive/remove the old bundle outside ProcureLens. Existing result bundles are not silently overwritten.
+
+**A feature is missing** — missing evidence is often an intentional first-class state, not automatically a software failure. Check the exported reason/provenance before replacing it with zero or another invented value.
+
+## Real USAspending data — recommended operating sequence
+
+ProcureLens is deliberately not designed as “drop any CSV into Isolation Forest.” A real run should preserve the same source, quality, context, and train/reference boundaries exercised by the internal architecture.
+
+A recommended sequence is:
+
+1. **Define the analytical population deliberately.** Choose the time window, award types, agencies/categories, and other filters appropriate to the question you want to study.
+2. **Acquire the USAspending artifact.** Use the source/control-plane and artifact components, or another controlled process that preserves the exact downloaded artifact and source revision.
+3. **Materialize the full artifact before analysis.** Do not model a partially downloaded ZIP/CSV.
+4. **Read through the explicit USAspending schema layer.** Avoid ad-hoc fuzzy column mapping or silently repurposing similarly named fields.
+5. **Load canonical `ProcurementTransaction` objects.** This is where source-specific data becomes the source-neutral domain contract used by the analytical system.
+6. **Inspect quality/readiness evidence.** Missing competition fields, identity coverage, signed obligations, dates, schema/source information, and other coverage facts should be visible before modeling.
+7. **Freeze the reference population.** Amount, vendor, competition, and award-change context must be built from the intended reference data, not silently updated with the scoring rows.
+8. **Build candidate features.** Each signal family preserves its own support, missingness, and evidence provenance.
+9. **Fit preprocessing, detectors, and calibration on training/reference rows only.** Scoring rows reuse fitted state.
+10. **Review outputs as anomaly evidence.** Treat the 0–100 value as review priority, not fraud probability.
+11. **Publish the run bundle.** Preserve the manifest, publication receipt, JSON/CSV exports, and source revision so the run can be audited later.
+
+For the first live validation, start with a deliberately bounded USAspending population rather than immediately attempting the entire federal universe. Confirm row counts, data-quality coverage, feature availability, runtime/memory behavior, output integrity, and investigator-readable explanations before scaling the population upward.
+
 ## Installation
 
 ProcureLens requires Python 3.11 or newer.
