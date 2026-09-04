@@ -386,8 +386,7 @@ def _payloads(
             )
         _validate_ids(
             transaction_id, award_id,
-            competition_context.transaction_id,
-            competition_context.award_id,
+            competition_context.transaction_id, competition_context.award_id,
             "competition_context",
         )
         result.append(
@@ -426,10 +425,25 @@ def _normalize_payload_features(
 ) -> dict[str, CandidateFeatureValue]:
     expected = tuple(entry.name for entry in entries)
     observed = tuple(feature.name.value for feature in payload.features)
-    if observed != expected:
+    if len(observed) != len(set(observed)):
         raise FeatureRowError(
-            f"{payload.source.value}: feature-set names/order differ from catalog"
+            f"{payload.source.value}: feature set contains duplicate names"
         )
+    expected_set = set(expected)
+    observed_set = set(observed)
+    if observed_set != expected_set:
+        missing = sorted(expected_set - observed_set)
+        extra = sorted(observed_set - expected_set)
+        details: list[str] = []
+        if missing:
+            details.append("missing=" + ",".join(missing))
+        if extra:
+            details.append("extra=" + ",".join(extra))
+        raise FeatureRowError(
+            f"{payload.source.value}: feature-set names differ from catalog"
+            + (" (" + "; ".join(details) + ")" if details else "")
+        )
+
     result: dict[str, CandidateFeatureValue] = {}
     for feature in payload.features:
         name = feature.name.value
